@@ -165,12 +165,41 @@ def attach_telegram_to_fastapi(fastapi_app: FastAPI):
         application = getattr(fastapi_app.state, "telegram_app", None)
         if application is None:
             raise HTTPException(status_code=503, detail="Telegram application not initialized")
+        # Safely handle empty or non-JSON bodies (some platforms send probes).
+        try:
+            # Read raw body first so we can log or early-return on empty bodies.
+            body_bytes = await request.body()
+        except Exception as e:
+            logger.exception("Failed to read request body: %s", e)
+            raise HTTPException(status_code=400, detail="Failed to read request body")
 
-        update_json = await request.json()
-        from telegram import Update
+        if not body_bytes:
+            # Some HTTP probes hit this endpoint with no body; acknowledge them
+            # so the sender doesn't retry. Return 200 so Telegram (or probes)
+            # consider the delivery successful.
+            logger.warning("Empty request body received at Telegram webhook; ignoring.")
+            return {"ok": True}
 
-        update = Update.de_json(update_json, application.bot)
-        await application.process_update(update)
+        import json
+        from json import JSONDecodeError
+
+        try:
+            update_json = json.loads(body_bytes)
+        except JSONDecodeError:
+            logger.warning("Received non-JSON body at webhook: %s", body_bytes[:200])
+            # Don't cause repeated retries from Telegram; acknowledge but log.
+            return {"ok": True}
+
+        try:
+            from telegram import Update
+
+            update = Update.de_json(update_json, application.bot)
+            await application.process_update(update)
+        except Exception:
+            logger.exception("Failed to process Telegram update")
+            # Acknowledge to avoid retries; inspect logs for the root cause.
+            return {"ok": True}
+
         return {"ok": True}
 
     # Add the webhook route for POST requests at the configured path.
