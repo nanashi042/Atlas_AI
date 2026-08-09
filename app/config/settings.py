@@ -39,6 +39,14 @@ class Settings:
         self.TELEGRAM_BOT_TOKEN = values.get("TELEGRAM_BOT_TOKEN")
         # Public base URL for the Telegram webhook (e.g. "https://example.com")
         self.TELEGRAM_WEBHOOK_BASE_URL = values.get("TELEGRAM_WEBHOOK_BASE_URL")
+        # Optional custom path for webhook on your host (e.g. '/api/telegram').
+        # If not set, defaults to '/telegram/<bot_token>'.
+        self.TELEGRAM_WEBHOOK_PATH = values.get("TELEGRAM_WEBHOOK_PATH")
+        # Optional secret token to validate incoming webhook requests. If set,
+        # the webhook will be configured with Telegram's `secret_token` and
+        # incoming requests must include the header
+        # 'X-Telegram-Bot-Api-Secret-Token' with this value.
+        self.TELEGRAM_WEBHOOK_SECRET = values.get("TELEGRAM_WEBHOOK_SECRET")
         self.FINNHUB_API_KEY = values.get("FINNHUB_API_KEY")
         self.PRICE_ALERT_INTERVAL_MINUTES = _positive_int(values, "PRICE_ALERT_INTERVAL_MINUTES", 15, 5)
         self.DOCUMENT_MAX_CHARACTERS = _positive_int(values, "DOCUMENT_MAX_CHARACTERS", 24000, 2000)

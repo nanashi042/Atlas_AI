@@ -129,10 +129,23 @@ def attach_telegram_to_fastapi(fastapi_app: FastAPI):
         await application.stop()
         await application.shutdown()
 
-    @fastapi_app.post("/telegram/{token}")
-    async def telegram_webhook(token: str, request: Request):
-        if token != settings.TELEGRAM_BOT_TOKEN:
-            raise HTTPException(status_code=403, detail="Invalid token")
+    # Determine webhook path and register a route programmatically so the
+    # path can be a fixed host route (e.g. '/api/telegram') or include the
+    # bot token (default '/telegram/<token>'). If a webhook secret is set,
+    # validate the incoming header `X-Telegram-Bot-Api-Secret-Token`.
+    webhook_path = (
+        settings.TELEGRAM_WEBHOOK_PATH
+        if settings.TELEGRAM_WEBHOOK_PATH
+        else f"/telegram/{settings.TELEGRAM_BOT_TOKEN}"
+    )
+
+    async def telegram_webhook(request: Request):
+        # If a secret is configured, validate the header
+        if settings.TELEGRAM_WEBHOOK_SECRET:
+            header = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+            if header != settings.TELEGRAM_WEBHOOK_SECRET:
+                raise HTTPException(status_code=403, detail="Invalid webhook secret")
+
         application = getattr(fastapi_app.state, "telegram_app", None)
         if application is None:
             raise HTTPException(status_code=503, detail="Telegram application not initialized")
@@ -141,6 +154,9 @@ def attach_telegram_to_fastapi(fastapi_app: FastAPI):
         update = Update.de_json(update_json, application.bot)
         await application.process_update(update)
         return {"ok": True}
+
+    # Add the webhook route for POST requests at the configured path.
+    fastapi_app.add_api_route(webhook_path, telegram_webhook, methods=["POST"])
 
     fastapi_app.add_event_handler("startup", _startup)
     fastapi_app.add_event_handler("shutdown", _shutdown)
