@@ -104,25 +104,17 @@ def attach_telegram_to_fastapi(fastapi_app: FastAPI):
             logger.critical("Bot startup blocked by configuration: %s", exc)
             raise
 
-        # Attempt to initialize the database but skip SQLite initialization on
-        # production/serverless hosts (they typically have read-only or
-        # ephemeral filesystems). The application can continue in a degraded
-        # mode without persistent DB when SQLite isn't available.
+        # Initialize the configured database (Postgres). The application now
+        # requires `DATABASE_URL` and will not fall back to SQLite. If DB
+        # initialization fails we log and re-raise so deployment failures are
+        # visible in runtime logs rather than silently continuing without DB.
         try:
-            # Skip SQLite initialization on production or when running on Vercel
-            # (serverless). Recommend using an external DATABASE_URL (Postgres).
-            if settings.DATABASE_URL and settings.DATABASE_URL.startswith("sqlite") and (
-                settings.ENVIRONMENT == "production" or os.environ.get("VERCEL")
-            ):
-                logger.warning(
-                    "Skipping SQLite DB init on production/VERCEL; set DATABASE_URL to a hosted Postgres for persistence."
-                )
-            else:
-                ok = init_db(raise_on_error=False)
-                if not ok:
-                    logger.warning("Database initialization did not complete; continuing without DB.")
+            ok = init_db(raise_on_error=True)
+            if not ok:
+                logger.warning("Database initialization did not complete; continuing without DB.")
         except Exception:
-            logger.exception("Unexpected error during database initialization; continuing without DB.")
+            logger.exception("Database initialization failed; aborting startup.")
+            raise
 
         application = build_application()
         fastapi_app.state.telegram_app = application

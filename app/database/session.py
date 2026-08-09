@@ -23,10 +23,14 @@ def _ensure_engine():
     if _engine is not None and _SessionLocal is not None:
         return
 
-    db_url = settings.DATABASE_URL or "sqlite:///./atlas.db"
-    connect_args = {"check_same_thread": False} if db_url.startswith("sqlite") else {}
+    db_url = settings.DATABASE_URL
+    if not db_url:
+        logger.error("DATABASE_URL is not configured; refusing to use SQLite fallback.")
+        raise RuntimeError("DATABASE_URL must be set to a valid Postgres URL (no SQLite fallback).")
+
     try:
-        _engine = create_engine(db_url, connect_args=connect_args)
+        # Use a resilient engine configuration for managed Postgres services.
+        _engine = create_engine(db_url, future=True, pool_pre_ping=True)
         _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
     except Exception as e:
         logger.error("Failed to create DB engine: %s", e)

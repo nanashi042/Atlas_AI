@@ -33,7 +33,14 @@ class Settings:
         self.APP_NAME = values.get("APP_NAME", "Atlas AI")
         self.APP_VERSION = values.get("APP_VERSION", "1.0.0")
         self.ENVIRONMENT = values.get("ENVIRONMENT", "development").lower()
-        self.DATABASE_URL = values.get("DATABASE_URL", "sqlite:///./atlas.db")
+        # Prefer an explicit DATABASE_URL. Also accept common Supabase-style
+        # environment variables used in some deployment setups as fallbacks.
+        self.DATABASE_URL = (
+            values.get("DATABASE_URL")
+            or values.get("atlast_ai_POSTGRES_URL")
+            or values.get("atlast_ai_POSTGRES_URL_NON_POOLING")
+            or values.get("atlast_ai_POSTGRES_PRISMA_URL")
+        )
         self.GEMINI_API_KEY = values.get("GEMINI_API_KEY")
         self.GEMINI_MODEL = values.get("GEMINI_MODEL", "gemini-flash-latest")
         self.TELEGRAM_BOT_TOKEN = values.get("TELEGRAM_BOT_TOKEN")
