@@ -1,13 +1,6 @@
 import logging
 
 from fastapi import FastAPI, Request, HTTPException
-from telegram import Update
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    filters,
-)
 
 from app.config.settings import ConfigurationError, configure_logging, settings
 from app.database.session import init_db
@@ -59,6 +52,13 @@ async def _stop_scheduler(application):
 
 
 def build_application():
+    from telegram.ext import (
+        Application,
+        CommandHandler,
+        MessageHandler,
+        filters,
+    )
+
     app = (
         Application.builder()
         .token(settings.TELEGRAM_BOT_TOKEN)
@@ -99,10 +99,19 @@ def attach_telegram_to_fastapi(fastapi_app: FastAPI):
     async def _startup():
         try:
             settings.validate_bot_runtime()
-            init_db(raise_on_error=True)
         except ConfigurationError as exc:
             logger.critical("Bot startup blocked by configuration: %s", exc)
             raise
+
+        # Attempt to initialize the database but do not abort startup if the
+        # filesystem is read-only (common on serverless platforms). The
+        # application can continue in a degraded mode without persistent DB.
+        try:
+            ok = init_db(raise_on_error=False)
+            if not ok:
+                logger.warning("Database initialization did not complete; continuing without DB.")
+        except Exception:
+            logger.exception("Unexpected error during database initialization; continuing without DB.")
 
         application = build_application()
         fastapi_app.state.telegram_app = application
@@ -112,8 +121,15 @@ def attach_telegram_to_fastapi(fastapi_app: FastAPI):
 
         # Configure webhook if base URL provided
         if settings.TELEGRAM_WEBHOOK_BASE_URL:
-            webhook_url = settings.TELEGRAM_WEBHOOK_BASE_URL.rstrip("/") + f"/telegram/{settings.TELEGRAM_BOT_TOKEN}"
-            await application.bot.set_webhook(webhook_url)
+            base = settings.TELEGRAM_WEBHOOK_BASE_URL.rstrip("/")
+            path = settings.TELEGRAM_WEBHOOK_PATH or f"/telegram/{settings.TELEGRAM_BOT_TOKEN}"
+            webhook_url = base + path
+            # If a webhook secret is configured, pass it to Telegram so
+            # Telegram will include the secret header on incoming requests.
+            if settings.TELEGRAM_WEBHOOK_SECRET:
+                await application.bot.set_webhook(webhook_url, secret_token=settings.TELEGRAM_WEBHOOK_SECRET)
+            else:
+                await application.bot.set_webhook(webhook_url)
             logger.info("Set Telegram webhook to %s", webhook_url)
         else:
             logger.info("No TELEGRAM_WEBHOOK_BASE_URL set; webhook not configured.")
@@ -151,6 +167,8 @@ def attach_telegram_to_fastapi(fastapi_app: FastAPI):
             raise HTTPException(status_code=503, detail="Telegram application not initialized")
 
         update_json = await request.json()
+        from telegram import Update
+
         update = Update.de_json(update_json, application.bot)
         await application.process_update(update)
         return {"ok": True}
@@ -158,6 +176,7 @@ def attach_telegram_to_fastapi(fastapi_app: FastAPI):
     # Add the webhook route for POST requests at the configured path.
     fastapi_app.add_api_route(webhook_path, telegram_webhook, methods=["POST"])
 
-    fastapi_app.add_event_handler("startup", _startup)
-    fastapi_app.add_event_handler("shutdown", _shutdown)
+    # Register startup/shutdown handlers using the `on_event` decorator
+    fastapi_app.on_event("startup")(_startup)
+    fastapi_app.on_event("shutdown")(_shutdown)
 
