@@ -103,13 +103,17 @@ def attach_telegram_to_fastapi(fastapi_app: FastAPI):
             logger.critical("Bot startup blocked by configuration: %s", exc)
             raise
 
-        # Attempt to initialize the database but do not abort startup if the
-        # filesystem is read-only (common on serverless platforms). The
-        # application can continue in a degraded mode without persistent DB.
+        # Attempt to initialize the database but skip SQLite initialization on
+        # production/serverless hosts (they typically have read-only or
+        # ephemeral filesystems). The application can continue in a degraded
+        # mode without persistent DB when SQLite isn't available.
         try:
-            ok = init_db(raise_on_error=False)
-            if not ok:
-                logger.warning("Database initialization did not complete; continuing without DB.")
+            if settings.DATABASE_URL and settings.DATABASE_URL.startswith("sqlite") and settings.ENVIRONMENT == "production":
+                logger.warning("Running in production with SQLite DATABASE_URL; skipping DB init. Use an external DB for persistence.")
+            else:
+                ok = init_db(raise_on_error=False)
+                if not ok:
+                    logger.warning("Database initialization did not complete; continuing without DB.")
         except Exception:
             logger.exception("Unexpected error during database initialization; continuing without DB.")
 
@@ -149,11 +153,19 @@ def attach_telegram_to_fastapi(fastapi_app: FastAPI):
     # path can be a fixed host route (e.g. '/api/telegram') or include the
     # bot token (default '/telegram/<token>'). If a webhook secret is set,
     # validate the incoming header `X-Telegram-Bot-Api-Secret-Token`.
-    webhook_path = (
-        settings.TELEGRAM_WEBHOOK_PATH
-        if settings.TELEGRAM_WEBHOOK_PATH
-        else f"/telegram/{settings.TELEGRAM_BOT_TOKEN}"
-    )
+    # Default webhook path determination:
+    # - If `TELEGRAM_WEBHOOK_PATH` is explicitly configured, use it.
+    # - If the provided base URL looks like a Vercel domain, prefer
+    #   the common serverless path `/api/telegram` so requests map to
+    #   Vercel functions. Otherwise default to `/telegram/<token>`.
+    if settings.TELEGRAM_WEBHOOK_PATH:
+        webhook_path = settings.TELEGRAM_WEBHOOK_PATH
+    else:
+        base = (settings.TELEGRAM_WEBHOOK_BASE_URL or "").lower()
+        if "vercel.app" in base or os.environ.get("VERCEL"):
+            webhook_path = "/api/telegram"
+        else:
+            webhook_path = f"/telegram/{settings.TELEGRAM_BOT_TOKEN}"
 
     async def telegram_webhook(request: Request):
         # If a secret is configured, validate the header
@@ -234,10 +246,9 @@ def attach_telegram_to_fastapi(fastapi_app: FastAPI):
             send_url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage"
             async with httpx.AsyncClient(timeout=10.0) as client:
                 payload = {"chat_id": chat_id, "text": reply}
-                if settings.TELEGRAM_WEBHOOK_SECRET:
-                    # If webhook secret is used, no change needed for sending.
-                    pass
-                await client.post(send_url, json=payload)
+                r = await client.post(send_url, json=payload)
+                if r.status_code != 200:
+                    logger.warning("Telegram sendMessage returned %s: %s", r.status_code, r.text[:500])
         except Exception:
             logger.exception("Fallback processing failed")
 
