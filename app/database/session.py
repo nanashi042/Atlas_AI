@@ -35,6 +35,11 @@ def _ensure_engine():
             "SQLite URLs are not supported. Set DATABASE_URL to your Postgres connection string."
         )
 
+    # Normalize common postgres scheme shorthand so SQLAlchemy loads the
+    # correct dialect plugin (expects 'postgresql').
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+
     try:
         # Use a resilient engine configuration for managed Postgres services.
         _engine = create_engine(db_url, future=True, pool_pre_ping=True)

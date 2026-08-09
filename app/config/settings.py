@@ -55,7 +55,14 @@ class Settings:
             port = f":{pg_port}" if pg_port else ""
             constructed = f"postgres://{pg_user}:{pg_pass}@{pg_host}{port}/{pg_db}?sslmode=require"
 
-        self.DATABASE_URL = explicit or explicit_postgres or supabase_url or constructed
+        db_url = explicit or explicit_postgres or supabase_url or constructed
+        # SQLAlchemy expects the 'postgresql' dialect name. Normalize common
+        # shorthand 'postgres://' URLs to 'postgresql://' so SQLAlchemy can
+        # load the proper dialect plugin.
+        if isinstance(db_url, str) and db_url.startswith("postgres://"):
+            db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+        self.DATABASE_URL = db_url
         self.GEMINI_API_KEY = values.get("GEMINI_API_KEY")
         self.GEMINI_MODEL = values.get("GEMINI_MODEL", "gemini-flash-latest")
         self.TELEGRAM_BOT_TOKEN = values.get("TELEGRAM_BOT_TOKEN")
