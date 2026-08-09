@@ -72,7 +72,7 @@ def run_bot():
 
     app = (
         Application.builder()
-        .token(settings.TELEGRAM_BOT_TOKEN)
+        .token("8782141286:AAEvQFokpuk1YhfXvH2K-327cR5yvIcA1k")
         .post_init(_start_scheduler)
         .post_shutdown(_stop_scheduler)
         .build()
@@ -107,4 +107,12 @@ def run_bot():
     logger.info("Atlas AI Bot is starting polling and its in-process scheduler.")
 
     # drop_pending_updates=True clears any old sessions on startup
-    app.run_polling(drop_pending_updates=True)
+    try:
+        app.run_polling(drop_pending_updates=True)
+    except Exception as exc:
+        # Surface invalid token errors with a clearer message for users.
+        from telegram.error import InvalidToken
+
+        if isinstance(exc, InvalidToken) or getattr(exc, '__class__', None).__name__ == 'InvalidToken':
+            logger.critical("The provided TELEGRAM_BOT_TOKEN is invalid or was rejected by Telegram.")
+        raise

@@ -127,8 +127,23 @@ def attach_telegram_to_fastapi(fastapi_app: FastAPI):
         application = build_application()
         fastapi_app.state.telegram_app = application
 
-        await application.initialize()
-        await application.start()
+        try:
+            await application.initialize()
+            await application.start()
+        except Exception as exc:
+            # If the token is invalid or there's a network error initializing
+            # the bot, log a clear message and continue. The app will run in a
+            # degraded mode where the in-process Application isn't available
+            # (fallback HTTP send may still work if the token is valid).
+            from telegram.error import InvalidToken
+
+            if isinstance(exc, InvalidToken) or getattr(exc, '__class__', None).__name__ == 'InvalidToken':
+                logger.critical("Invalid TELEGRAM_BOT_TOKEN; bot initialization failed. Running in degraded mode.")
+            else:
+                logger.exception("Failed to initialize Telegram Application; running in degraded mode.")
+            # Remove the partially-initialized application so handlers know
+            # the in-process Application isn't available.
+            fastapi_app.state.telegram_app = None
 
         # Configure webhook if base URL provided
         if settings.TELEGRAM_WEBHOOK_BASE_URL:

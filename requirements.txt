@@ -8,4 +8,4 @@ python-dotenv==1.2.2
 python-telegram-bot==22.8
 SQLAlchemy==2.0.51
 uvicorn==0.52.1
-psycopg[binary]
+psycopg2-binary

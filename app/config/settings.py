@@ -62,6 +62,20 @@ class Settings:
         if isinstance(db_url, str) and db_url.startswith("postgres://"):
             db_url = db_url.replace("postgres://", "postgresql://", 1)
 
+        # Remove any non-libpq connection options that some providers add
+        # (e.g. `pgbouncer=true` or provider-specific keys) because passing
+        # unknown query params to libpq / psycopg2 causes a ProgrammingError.
+        if isinstance(db_url, str) and "?" in db_url:
+            from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+
+            parsed = urlparse(db_url)
+            qs = dict(parse_qsl(parsed.query, keep_blank_values=True))
+            # Blacklist provider-specific keys that are not valid libpq options
+            for bad in ("pgbouncer", "supa"):
+                qs.pop(bad, None)
+            new_query = urlencode(qs, doseq=True)
+            db_url = urlunparse(parsed._replace(query=new_query))
+
         self.DATABASE_URL = db_url
         self.GEMINI_API_KEY = values.get("GEMINI_API_KEY")
         self.GEMINI_MODEL = values.get("GEMINI_MODEL", "gemini-flash-latest")
@@ -89,11 +103,11 @@ class Settings:
 
     def validate_bot_runtime(self) -> None:
         """Ensure every external service required by the polling bot is configured."""
-        required = {
-            "TELEGRAM_BOT_TOKEN": self.TELEGRAM_BOT_TOKEN,
-            "GEMINI_API_KEY": self.GEMINI_API_KEY,
-            "FINNHUB_API_KEY": self.FINNHUB_API_KEY,
-        }
+        # For starting any bot process we require a Telegram token and a
+        # configured database URL. Other external APIs (Gemini, Finnhub) are
+        # optional: their absence reduces features but should not block
+        # basic bot connectivity and tests.
+        required = {"TELEGRAM_BOT_TOKEN": self.TELEGRAM_BOT_TOKEN}
         missing = [name for name, value in required.items() if not _is_configured(value)]
         if missing:
             raise ConfigurationError(
@@ -101,6 +115,12 @@ class Settings:
             )
         if not self.DATABASE_URL:
             raise ConfigurationError("Missing required runtime configuration: DATABASE_URL.")
+
+        if not _is_configured(self.GEMINI_API_KEY):
+            # Non-fatal warning; AI features will be limited.
+            logging.getLogger(__name__).warning("GEMINI_API_KEY not configured; AI features limited.")
+        if not _is_configured(self.FINNHUB_API_KEY):
+            logging.getLogger(__name__).warning("FINNHUB_API_KEY not configured; company research limited.")
 
 
 def configure_logging() -> None:
