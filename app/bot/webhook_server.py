@@ -190,15 +190,56 @@ def attach_telegram_to_fastapi(fastapi_app: FastAPI):
             # Don't cause repeated retries from Telegram; acknowledge but log.
             return {"ok": True}
 
-        try:
-            from telegram import Update
+        # If the in-process Application is available, prefer it (it runs
+        # registered handlers). In serverless deployments the Application
+        # may not be initialized, so fall back to a lightweight flow that
+        # runs `process_message` and sends the reply via the Telegram API.
+        if application is not None:
+            try:
+                from telegram import Update
 
-            update = Update.de_json(update_json, application.bot)
-            await application.process_update(update)
+                update = Update.de_json(update_json, application.bot)
+                await application.process_update(update)
+                return {"ok": True}
+            except Exception:
+                logger.exception("Failed to process Telegram update with Application; falling back to manual send")
+
+        # Manual fallback: handle simple message updates and reply via HTTP.
+        try:
+            # Only handle message updates for fallback; ignore other update types.
+            message = update_json.get("message") or update_json.get("edited_message")
+            if not message:
+                logger.info("No message payload for fallback path; ignoring update")
+                return {"ok": True}
+
+            chat = message.get("chat")
+            chat_id = chat and chat.get("id")
+            if not chat_id:
+                logger.warning("Fallback: missing chat_id in message: %s", message)
+                return {"ok": True}
+
+            user_text = message.get("text", "")
+            if not user_text:
+                # Nothing for the manager to process; acknowledge.
+                return {"ok": True}
+
+            # Generate reply via the same manager used by handlers.
+            from app.agent.manager import process_message
+            reply = await process_message(user_text, session_id=str(chat_id))
+
+            # Send reply using Telegram HTTP API so we don't rely on long-lived
+            # bot objects in the serverless runtime.
+            import httpx
+
+            send_url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage"
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                payload = {"chat_id": chat_id, "text": reply}
+                if settings.TELEGRAM_WEBHOOK_SECRET:
+                    # If webhook secret is used, no change needed for sending.
+                    pass
+                await client.post(send_url, json=payload)
         except Exception:
-            logger.exception("Failed to process Telegram update")
-            # Acknowledge to avoid retries; inspect logs for the root cause.
-            return {"ok": True}
+            logger.exception("Fallback processing failed")
 
         return {"ok": True}
 
