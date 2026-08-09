@@ -16,7 +16,7 @@ init_db()
 
 class ConversationMemory:
     """
-    Manages session-isolated conversation history with persistence in SQLite/SQLAlchemy.
+    Manages session-isolated conversation history with persistence in SQLAlchemy/Postgres.
     Provides sliding-window context history for multi-turn Gemini conversations.
     """
 

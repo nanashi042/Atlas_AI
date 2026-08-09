@@ -16,7 +16,7 @@ Atlas AI is a Telegram-based financial assistant for company research, watchlist
 
 ## Architecture
 
-Telegram updates are routed through the central agent manager to focused services. SQLAlchemy persists conversation memory, watchlists, briefing preferences, and alerts in SQLite by default. APScheduler runs the in-process briefing and alert jobs. PDFs are downloaded to a temporary file, extracted with PyMuPDF, bounded in memory, and then deleted. Gemini receives only the bounded document context when document features are used.
+Telegram updates are routed through the central agent manager to focused services. SQLAlchemy persists conversation memory, watchlists, briefing preferences, and alerts in a configured Postgres database (set `DATABASE_URL`). APScheduler runs the in-process briefing and alert jobs. PDFs are downloaded to a temporary file, extracted with PyMuPDF, bounded in memory, and then deleted. Gemini receives only the bounded document context when document features are used.
 
 The bot runs as a single Telegram polling process. Natural-language requests are routed to company research, watchlist, alert, briefing, general-chat, or document services. `/start` and `/help` explain the available capabilities to new users.
 
@@ -27,7 +27,7 @@ The bot runs as a single Telegram polling process. Natural-language requests are
 - Google Gemini (`google-genai`)
 - Finnhub via `httpx`
 - FastAPI and Uvicorn (including `/health`)
-- SQLAlchemy and SQLite
+- SQLAlchemy and Postgres (set `DATABASE_URL`)
 - APScheduler
 - PyMuPDF
 
@@ -48,7 +48,9 @@ Edit `.env` using environment-specific values. Never commit it.
 APP_NAME=Atlas AI
 APP_VERSION=1.0.0
 ENVIRONMENT=production
-DATABASE_URL=sqlite:///./atlas.db
+# DATABASE_URL must be set to your Postgres connection string, for example:
+# postgres://user:password@host:5432/dbname?sslmode=require
+DATABASE_URL=
 LOG_LEVEL=INFO
 
 TELEGRAM_BOT_TOKEN=replace_with_your_token
@@ -114,17 +116,7 @@ The image runs the Telegram polling bot by default. Build it with:
 docker build -t atlas-ai:latest .
 ```
 
-For SQLite, mount a persistent writable directory and set its container path explicitly:
-
-```powershell
-docker run --rm --name atlas-ai `
-  --env-file .env `
-  -e DATABASE_URL=sqlite:////data/atlas.db `
-  -v ${PWD}\data:/data `
-  atlas-ai:latest
-```
-
-Do not bake `.env` or a local database into the image. To run the optional health service instead of the bot, override the command with `uvicorn app.main:app --host 0.0.0.0 --port 8000` and publish port `8000`.
+For Docker, set `DATABASE_URL` to your Postgres connection string and supply credentials via environment variables or `--env-file`. Do not bake `.env` or a local database into the image. To run the optional health service instead of the bot, override the command with `uvicorn app.main:app --host 0.0.0.0 --port 8000` and publish port `8000`.
 
 ## Limitations
 
