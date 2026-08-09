@@ -47,6 +47,10 @@ class Settings:
         # incoming requests must include the header
         # 'X-Telegram-Bot-Api-Secret-Token' with this value.
         self.TELEGRAM_WEBHOOK_SECRET = values.get("TELEGRAM_WEBHOOK_SECRET")
+        # Optional secret for internal debug endpoints. If set, calls to
+        # internal diagnostic endpoints must include the header
+        # 'X-Debug-Secret' with this value.
+        self.TELEGRAM_DEBUG_SECRET = values.get("TELEGRAM_DEBUG_SECRET")
         self.FINNHUB_API_KEY = values.get("FINNHUB_API_KEY")
         self.PRICE_ALERT_INTERVAL_MINUTES = _positive_int(values, "PRICE_ALERT_INTERVAL_MINUTES", 15, 5)
         self.DOCUMENT_MAX_CHARACTERS = _positive_int(values, "DOCUMENT_MAX_CHARACTERS", 24000, 2000)

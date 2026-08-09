@@ -205,6 +205,88 @@ def attach_telegram_to_fastapi(fastapi_app: FastAPI):
     # Add the webhook route for POST requests at the configured path.
     fastapi_app.add_api_route(webhook_path, telegram_webhook, methods=["POST"])
 
+    async def _telegram_status():
+        """Internal status endpoint: whether the Telegram Application started and webhook info.
+
+        This endpoint is intentionally non-sensitive: it does not return tokens or
+        secrets. It helps confirm the bot application initialized and what webhook
+        Telegram reports.
+        """
+        application = getattr(fastapi_app.state, "telegram_app", None)
+        status = {"initialized": bool(application)}
+        if not application:
+            return status
+
+        try:
+            # Get webhook info from Telegram via the bot API. The returned
+            # object may include the webhook URL; mask any token-like segments
+            # before returning.
+            info = await application.bot.get_webhook_info()
+            webhook_url = getattr(info, "url", None)
+            if webhook_url and settings.TELEGRAM_BOT_TOKEN:
+                webhook_url = webhook_url.replace(settings.TELEGRAM_BOT_TOKEN, "<redacted>")
+
+            status.update(
+                {
+                    "webhook_url": webhook_url,
+                    "pending_update_count": getattr(info, "pending_update_count", None),
+                    "last_error_message": getattr(info, "last_error_message", None),
+                }
+            )
+        except Exception:
+            logger.exception("Failed to fetch webhook info")
+            status["webhook_error"] = True
+
+        return status
+
+    fastapi_app.add_api_route("/_internal/telegram_status", _telegram_status, methods=["GET"])
+
+    async def _send_test_message(request: Request):
+        """Send a test message: simulate a user message through `process_message`
+        and have the bot send the generated reply to `chat_id`.
+
+        Request JSON: { "chat_id": 12345, "text": "hello" }
+        Header: X-Debug-Secret must match `TELEGRAM_DEBUG_SECRET` if configured.
+        """
+        # Protect the endpoint with the debug secret if configured.
+        if settings.TELEGRAM_DEBUG_SECRET:
+            header = request.headers.get("X-Debug-Secret")
+            if header != settings.TELEGRAM_DEBUG_SECRET:
+                raise HTTPException(status_code=403, detail="Invalid debug secret")
+
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+        chat_id = body.get("chat_id")
+        user_text = body.get("text", "hello")
+        if not chat_id:
+            raise HTTPException(status_code=400, detail="chat_id is required")
+
+        application = getattr(fastapi_app.state, "telegram_app", None)
+        if application is None:
+            raise HTTPException(status_code=503, detail="Telegram application not initialized")
+
+        # Run the message through the manager to produce a reply, then send it.
+        try:
+            from app.agent.manager import process_message
+
+            reply = await process_message(user_text, session_id=str(chat_id))
+        except Exception:
+            logger.exception("Failed to generate reply via process_message")
+            raise HTTPException(status_code=500, detail="Failed to generate reply")
+
+        try:
+            await application.bot.send_message(chat_id=chat_id, text=reply)
+        except Exception:
+            logger.exception("Failed to send test message via bot.send_message")
+            raise HTTPException(status_code=500, detail="Failed to send message")
+
+        return {"ok": True, "reply": reply}
+
+    fastapi_app.add_api_route("/_internal/send_test_message", _send_test_message, methods=["POST"])
+
     # Register startup/shutdown handlers using the `on_event` decorator
     fastapi_app.on_event("startup")(_startup)
     fastapi_app.on_event("shutdown")(_shutdown)
