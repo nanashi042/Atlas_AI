@@ -10,8 +10,9 @@ from app.models.watchlist import WatchlistEntry  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
-# Ensure database tables exist on module load
-init_db()
+# Database initialization should happen at application startup; avoid
+# calling `init_db()` at import time to prevent import-time failures on
+# serverless hosts. The application startup handler will call `init_db()`.
 
 
 class ConversationMemory:

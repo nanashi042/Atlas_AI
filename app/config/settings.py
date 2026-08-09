@@ -35,12 +35,27 @@ class Settings:
         self.ENVIRONMENT = values.get("ENVIRONMENT", "development").lower()
         # Prefer an explicit DATABASE_URL. Also accept common Supabase-style
         # environment variables used in some deployment setups as fallbacks.
-        self.DATABASE_URL = (
-            values.get("DATABASE_URL")
-            or values.get("atlast_ai_POSTGRES_URL")
+        explicit = values.get("DATABASE_URL")
+        supabase_url = values.get("atlast_ai_SUPABASE_URL")
+        explicit_postgres = (
+            values.get("atlast_ai_POSTGRES_URL")
             or values.get("atlast_ai_POSTGRES_URL_NON_POOLING")
             or values.get("atlast_ai_POSTGRES_PRISMA_URL")
         )
+
+        # If parts are provided, construct a URL: user, password, host, db, optional port
+        pg_user = values.get("atlast_ai_POSTGRES_USER")
+        pg_pass = values.get("atlast_ai_POSTGRES_PASSWORD")
+        pg_host = values.get("atlast_ai_POSTGRES_HOST")
+        pg_db = values.get("atlast_ai_POSTGRES_DATABASE")
+        pg_port = values.get("atlast_ai_POSTGRES_PORT")
+
+        constructed = None
+        if pg_user and pg_pass and pg_host and pg_db:
+            port = f":{pg_port}" if pg_port else ""
+            constructed = f"postgres://{pg_user}:{pg_pass}@{pg_host}{port}/{pg_db}?sslmode=require"
+
+        self.DATABASE_URL = explicit or explicit_postgres or supabase_url or constructed
         self.GEMINI_API_KEY = values.get("GEMINI_API_KEY")
         self.GEMINI_MODEL = values.get("GEMINI_MODEL", "gemini-flash-latest")
         self.TELEGRAM_BOT_TOKEN = values.get("TELEGRAM_BOT_TOKEN")

@@ -98,11 +98,19 @@ def attach_telegram_to_fastapi(fastapi_app: FastAPI):
     """Attach telegram application to a FastAPI app via startup/shutdown events and a webhook route."""
 
     async def _startup():
-        try:
-            settings.validate_bot_runtime()
-        except ConfigurationError as exc:
-            logger.critical("Bot startup blocked by configuration: %s", exc)
-            raise
+        # For webhook deployments we only require the Telegram bot token at
+        # startup. Other external APIs (Gemini, Finnhub) are optional for
+        # limited functionality and will be logged if missing.
+        if not settings.TELEGRAM_BOT_TOKEN:
+            logger.critical("TELEGRAM_BOT_TOKEN is not configured; bot cannot start.")
+            raise ConfigurationError("Missing TELEGRAM_BOT_TOKEN")
+        # Warn about missing services but do not block startup here; full
+        # polling runtime still validates all required keys via
+        # `settings.validate_bot_runtime()` when appropriate.
+        if not settings.GEMINI_API_KEY:
+            logger.warning("GEMINI_API_KEY not configured — AI features will be limited.")
+        if not settings.FINNHUB_API_KEY:
+            logger.warning("FINNHUB_API_KEY not configured — company research may be limited.")
 
         # Initialize the configured database (Postgres). The application now
         # requires `DATABASE_URL` and will not fall back to SQLite. If DB

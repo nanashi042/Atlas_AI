@@ -25,8 +25,15 @@ def _ensure_engine():
 
     db_url = settings.DATABASE_URL
     if not db_url:
-        logger.error("DATABASE_URL is not configured; refusing to use SQLite fallback.")
-        raise RuntimeError("DATABASE_URL must be set to a valid Postgres URL (no SQLite fallback).")
+        logger.error("DATABASE_URL is not configured; aborting engine creation.")
+        raise RuntimeError("DATABASE_URL must be set to a valid Postgres URL. No SQLite fallback is allowed.")
+
+    # Explicitly refuse to use SQLite URLs in server/runtime environments.
+    if db_url.startswith("sqlite"):
+        logger.error("Detected sqlite DATABASE_URL; sqlite is not supported in this deployment.")
+        raise RuntimeError(
+            "SQLite URLs are not supported. Set DATABASE_URL to your Postgres connection string."
+        )
 
     try:
         # Use a resilient engine configuration for managed Postgres services.
