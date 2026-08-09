@@ -1,11 +1,16 @@
 from fastapi import FastAPI
 
 from app.config.settings import settings
+from app.bot.webhook_server import attach_telegram_to_fastapi
+
 
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
 )
+
+
+attach_telegram_to_fastapi(app)
 
 
 @app.get("/")
