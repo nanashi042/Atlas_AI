@@ -1,4 +1,5 @@
 import logging
+import os
 
 from fastapi import FastAPI, Request, HTTPException
 
@@ -108,8 +109,14 @@ def attach_telegram_to_fastapi(fastapi_app: FastAPI):
         # ephemeral filesystems). The application can continue in a degraded
         # mode without persistent DB when SQLite isn't available.
         try:
-            if settings.DATABASE_URL and settings.DATABASE_URL.startswith("sqlite") and settings.ENVIRONMENT == "production":
-                logger.warning("Running in production with SQLite DATABASE_URL; skipping DB init. Use an external DB for persistence.")
+            # Skip SQLite initialization on production or when running on Vercel
+            # (serverless). Recommend using an external DATABASE_URL (Postgres).
+            if settings.DATABASE_URL and settings.DATABASE_URL.startswith("sqlite") and (
+                settings.ENVIRONMENT == "production" or os.environ.get("VERCEL")
+            ):
+                logger.warning(
+                    "Skipping SQLite DB init on production/VERCEL; set DATABASE_URL to a hosted Postgres for persistence."
+                )
             else:
                 ok = init_db(raise_on_error=False)
                 if not ok:
