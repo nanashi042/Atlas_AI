@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "fastapi",
 	"annotated-doc==0.0.5",
 	"annotated-types==0.8.0",
 	"anyio==4.14.2",
@@ -15,7 +16,6 @@ dependencies = [
 	"click==8.4.2",
 	"cryptography==50.0.0",
 	"distro==1.9.0",
-	"fastapi==0.141.1",
 	"google-auth==2.56.3",
 	"google-genai==2.17.0",
 	"h11==0.16.0",
